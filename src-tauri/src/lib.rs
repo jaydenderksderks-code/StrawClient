@@ -5,6 +5,7 @@ use std::{io::Cursor, path::{Path, PathBuf}, sync::Arc};
 use tauri::{AppHandle, Emitter, Manager};
 mod runtime;
 mod instances;
+mod launch;
 
 const MANIFEST_URL: &str = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 const ASSET_BASE: &str = "https://resources.download.minecraft.net";
@@ -93,6 +94,12 @@ async fn platform_info() -> String {
 
 #[tauri::command]
 async fn detect_java() -> Vec<runtime::JavaRuntime> { runtime::detect_java() }
+
+#[tauri::command]
+async fn launch_version(app: AppHandle, version_id: String, username: String, java_path: String) -> Result<u32, String> {
+    let root = app.path().app_data_dir().map_err(|e| e.to_string())?.join("minecraft");
+    launch::launch(&root, &version_id, &username, &java_path)
+}
 
 #[tauri::command]
 async fn list_instances(app: AppHandle) -> Result<Vec<instances::InstanceInfo>, String> {
@@ -224,7 +231,7 @@ async fn install_version(app: AppHandle, version_id: String) -> Result<String, S
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![platform_info, detect_java, list_instances, create_instance, install_version])
+        .invoke_handler(tauri::generate_handler![platform_info, detect_java, launch_version, list_instances, create_instance, install_version])
         .run(tauri::generate_context!())
         .expect("error while running StrawClient");
 }
