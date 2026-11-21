@@ -44,6 +44,26 @@ function App() {
   }
 
   useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    listen<string>("install-progress", (event) => setStatus(event.payload))
+      .then((fn) => { unlisten = fn; }).catch(() => {});
+    return () => unlisten?.();
+  }, []);
+
+  async function installSelectedVersion() {
+    setInstalling(true);
+    setStatus(`STARTING INSTALLATION: ${selectedVersion}`);
+    try {
+      const path = await invoke<string>("install_version", { versionId: selectedVersion });
+      setStatus(`INSTALL COMPLETE: ${selectedVersion} · ${path}`);
+    } catch (error) {
+      setStatus(`INSTALL FAILED: ${String(error)}`);
+    } finally {
+      setInstalling(false);
+    }
+  }
+
+  useEffect(() => {
     loadVersions();
     invoke<string>("platform_info").then(setRustPlatform).catch(() => setRustPlatform("WEB PREVIEW — RUST BACKEND OFFLINE"));
   }, []);
