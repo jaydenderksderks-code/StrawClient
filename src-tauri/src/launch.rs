@@ -30,7 +30,7 @@ fn add_argument(output: &mut Vec<String>, item: &Value, vars: &[(String, String)
     }
 }
 
-pub fn launch(root: &Path, version: &str, username: &str, java: &str) -> Result<u32, String> {
+pub fn launch(root: &Path, version: &str, username: &str, java: &str, instance_name: &str) -> Result<u32, String> {
     if username.trim().is_empty() || username.len() > 16 || !username.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
         return Err("Offline username must be 1–16 letters, numbers or underscores.".into());
     }
@@ -38,7 +38,8 @@ pub fn launch(root: &Path, version: &str, username: &str, java: &str) -> Result<
     let metadata_path = version_dir.join(format!("{version}.json"));
     let metadata: Value = serde_json::from_slice(&std::fs::read(&metadata_path).map_err(|e| format!("Version is not installed: {e}"))?)
         .map_err(|e| format!("Invalid version metadata: {e}"))?;
-    let game_dir = root.join("instances").join("Strawberry");
+    if instance_name.trim().is_empty() || instance_name.len() > 48 || !instance_name.chars().all(|c| c.is_ascii_alphanumeric() || c == ' ' || c == '-' || c == '_') { return Err("Invalid instance name.".into()); }
+    let game_dir = root.join("instances").join(instance_name.trim());
     std::fs::create_dir_all(&game_dir).map_err(|e| e.to_string())?;
     let assets = root.join("assets");
     let natives = version_dir.join("natives");
