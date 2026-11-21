@@ -1,5 +1,5 @@
 use serde_json::Value;
-use std::{path::{Path, PathBuf}, process::{Command, Stdio}};
+use std::{path::Path, process::{Command, Stdio}};
 
 fn allowed(arg: &Value) -> bool {
     let Some(rules) = arg.get("rules").and_then(Value::as_array) else { return true; };
@@ -14,7 +14,7 @@ fn allowed(arg: &Value) -> bool {
 }
 
 fn expand(value: &str, vars: &[(String, String)]) -> String {
-    vars.iter().fold(value.to_owned(), |out, (key, val)| out.replace(&format!("${{key}}"), val))
+    vars.iter().fold(value.to_owned(), |out, (key, val)| out.replace(&format!("${{{key}}}"), val))
 }
 
 fn add_argument(output: &mut Vec<String>, item: &Value, vars: &[(String, String)]) {
