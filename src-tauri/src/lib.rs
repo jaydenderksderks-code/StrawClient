@@ -77,7 +77,7 @@ fn extract_native_archive(bytes: Vec<u8>, destination: PathBuf) -> Result<(), St
     for index in 0..archive.len() {
         let mut entry = archive.by_index(index).map_err(|e| e.to_string())?;
         if entry.is_dir() { continue; }
-        let Some(relative) = entry.enclosed_name().map(Path::to_path_buf) else { continue; };
+        let Some(relative) = entry.enclosed_name().map(|path| path.to_path_buf()) else { continue; };
         if relative.components().any(|c| c.as_os_str().to_string_lossy().eq_ignore_ascii_case("META-INF")) { continue; }
         let target = destination.join(relative);
         if let Some(parent) = target.parent() { std::fs::create_dir_all(parent).map_err(|e| e.to_string())?; }
