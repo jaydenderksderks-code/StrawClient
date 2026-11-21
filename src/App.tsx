@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { getVersions, getLatestVersions, type MinecraftVersion, type VersionType } from "./lib/versions";
 
 type Page = "terminal" | "instances" | "mods" | "settings" | "about";
@@ -26,6 +27,7 @@ function App() {
   const [instanceName, setInstanceName] = useState("Strawberry");
   const [status, setStatus] = useState("SYSTEM READY. SELECT AN ACTION.");
   const [rustPlatform, setRustPlatform] = useState("WEB PREVIEW");
+  const [installing, setInstalling] = useState(false);
 
   async function loadVersions() {
     setManifestState("FETCHING OFFICIAL VERSION MANIFEST...");
@@ -110,7 +112,7 @@ function App() {
         <div className="readout"><small>SELECTED VERSION</small><strong>{selectedVersion}</strong></div>
         <div className="readout"><small>LOADER</small><strong>{selectedLoader.toUpperCase()}</strong></div>
         {latest && <div className="latest">LATEST RELEASE: {latest.release}<br/>LATEST SNAPSHOT: {latest.snapshot}</div>}
-        <h2>VERSION CATALOGUE</h2>
+        <button className="refresh" disabled={installing} onClick={installSelectedVersion}>{installing ? "[ INSTALLING... ]" : "[ INSTALL SELECTED VERSION ]"}</button>\n        <h2>VERSION CATALOGUE</h2>
         <input className="search" placeholder="SEARCH EVERY VERSION..." value={query} onChange={(e) => setQuery(e.target.value)} />
         <div className="filters">{(["all", "release", "snapshot", "old_beta", "old_alpha"] as Filter[]).map((f) => <button key={f} className={filter === f ? "filter active" : "filter"} onClick={() => setFilter(f)}>{f === "all" ? "ALL" : f.replace("_", " ").toUpperCase()}</button>)}</div>
         <div className="version-list" role="listbox" aria-label="Minecraft versions">
@@ -133,7 +135,7 @@ function App() {
           <div className="rule" />
           <div className="statusline"><span>● ONLINE</span><span>{rustPlatform}</span><span>JAVA EDITION</span></div>
           {renderPage()}
-          <footer className="screen-footer"><span>{manifestState}</span><span>STRAWBERRY SYSTEMS © 2026</span></footer>
+          <footer className="screen-footer"><span title={status}>{status}</span><span>{manifestState}</span></footer>
           <div className="crt-scanlines" />
         </div>
       </div>
