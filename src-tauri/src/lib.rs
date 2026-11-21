@@ -96,9 +96,9 @@ async fn platform_info() -> String {
 async fn detect_java() -> Vec<runtime::JavaRuntime> { runtime::detect_java() }
 
 #[tauri::command]
-async fn launch_version(app: AppHandle, version_id: String, username: String, java_path: String) -> Result<u32, String> {
+async fn launch_version(app: AppHandle, version_id: String, username: String, java_path: String, instance_name: String) -> Result<u32, String> {
     let root = app.path().app_data_dir().map_err(|e| e.to_string())?.join("minecraft");
-    launch::launch(&root, &version_id, &username, &java_path)
+    launch::launch(&root, &version_id, &username, &java_path, &instance_name)
 }
 
 #[tauri::command]
