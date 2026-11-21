@@ -38,6 +38,18 @@ pub fn launch(root: &Path, version: &str, username: &str, java: &str, instance_n
     let metadata_path = version_dir.join(format!("{version}.json"));
     let metadata: Value = serde_json::from_slice(&std::fs::read(&metadata_path).map_err(|e| format!("Version is not installed: {e}"))?)
         .map_err(|e| format!("Invalid version metadata: {e}"))?;
+    if !Path::new(java).exists() { return Err(format!("Java executable does not exist: {java}")); }
+    if let Some(required) = metadata.pointer("/javaVersion/majorVersion").and_then(Value::as_u64) {
+        let output = Command::new(java).arg("-version").output().map_err(|e| format!("Could not inspect Java runtime: {e}"))?;
+        let version_text = format!("{}{}", String::from_utf8_lossy(&output.stderr), String::from_utf8_lossy(&output.stdout));
+        let detected = version_text.split('"').nth(1).and_then(|v| {
+            let first = v.split('.').next()?;
+            if first == "1" { v.split('.').nth(1)?.parse::<u64>().ok() } else { first.parse::<u64>().ok() }
+        }).ok_or("Could not determine selected Java version")?;
+        if detected != required {
+            return Err(format!("Minecraft {version} requires Java {required}, but the selected runtime is Java {detected}. Choose the matching Java version in Settings."));
+        }
+    }
     if instance_name.trim().is_empty() || instance_name.len() > 48 || !instance_name.chars().all(|c| c.is_ascii_alphanumeric() || c == ' ' || c == '-' || c == '_') { return Err("Invalid instance name.".into()); }
     let game_dir = root.join("instances").join(instance_name.trim());
     std::fs::create_dir_all(&game_dir).map_err(|e| e.to_string())?;
