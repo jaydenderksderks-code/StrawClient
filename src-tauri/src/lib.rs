@@ -1,7 +1,7 @@
 use futures_util::stream::{self, StreamExt};
 use serde_json::Value;
 use sha1::{Digest, Sha1};
-use std::{path::{Path, PathBuf}, sync::Arc};
+use std::{io::Cursor, path::{Path, PathBuf}, sync::Arc};
 use tauri::{AppHandle, Emitter, Manager};
 
 const MANIFEST_URL: &str = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
@@ -53,13 +53,35 @@ fn library_allowed(library: &Value) -> bool {
     let Some(rules) = library.get("rules").and_then(Value::as_array) else { return true; };
     let mut allowed = false;
     for rule in rules {
-        let os_matches = rule.get("os").and_then(|v| v.get("name")).and_then(Value::as_str)
-            .map(|name| name == platform_name()).unwrap_or(true);
-        if os_matches {
-            allowed = rule.get("action").and_then(Value::as_str) == Some("allow");
-        }
+        let os = rule.get("os");
+        let os_matches = os.and_then(|v| v.get("name")).and_then(Value::as_str)
+            .map(|name| name == platform_name()).unwrap_or(true)
+            && os.and_then(|v| v.get("arch")).and_then(Value::as_str)
+                .map(|arch| arch == if cfg!(target_pointer_width = "64") { "x86_64" } else { "x86" }).unwrap_or(true);
+        if os_matches { allowed = rule.get("action").and_then(Value::as_str) == Some("allow"); }
     }
     allowed
+}
+
+fn native_classifier_key(library: &Value) -> Option<String> {
+    let natives = library.get("natives")?.get(platform_name())?.as_str()?;
+    Some(natives.replace("${arch}", if cfg!(target_pointer_width = "64") { "64" } else { "32" }))
+}
+
+fn extract_native_archive(bytes: Vec<u8>, destination: PathBuf) -> Result<(), String> {
+    std::fs::create_dir_all(&destination).map_err(|e| e.to_string())?;
+    let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| format!("Invalid native archive: {e}"))?;
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index).map_err(|e| e.to_string())?;
+        if entry.is_dir() { continue; }
+        let Some(relative) = entry.enclosed_name().map(Path::to_path_buf) else { continue; };
+        if relative.components().any(|c| c.as_os_str().to_string_lossy().eq_ignore_ascii_case("META-INF")) { continue; }
+        let target = destination.join(relative);
+        if let Some(parent) = target.parent() { std::fs::create_dir_all(parent).map_err(|e| e.to_string())?; }
+        let mut output = std::fs::File::create(&target).map_err(|e| e.to_string())?;
+        std::io::copy(&mut entry, &mut output).map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -98,15 +120,25 @@ async fn install_version(app: AppHandle, version_id: String) -> Result<String, S
     download_file(&client, client_url, &client_path, client_sha).await?;
 
     let libraries_root = root.join("libraries");
+    let natives_dir = root.join("versions").join(&version_id).join("natives");
     let mut library_jobs = Vec::new();
+    let mut native_jobs: Vec<(String, Option<String>)> = Vec::new();
     if let Some(libraries) = metadata.get("libraries").and_then(Value::as_array) {
         for library in libraries {
             if !library_allowed(library) { continue; }
-            if let Some(artifact) = library.get("downloads").and_then(|v| v.get("artifact")) {
+            let downloads = library.get("downloads");
+            if let Some(artifact) = downloads.and_then(|v| v.get("artifact")) {
                 if let (Some(url), Some(path)) = (artifact.get("url").and_then(Value::as_str), artifact.get("path").and_then(Value::as_str)) {
                     let target = safe_join(&libraries_root, path)?;
                     let sha = artifact.get("sha1").and_then(Value::as_str).map(str::to_owned);
                     library_jobs.push((url.to_owned(), target, sha));
+                }
+            }
+            if let Some(key) = native_classifier_key(library) {
+                if let Some(classifier) = downloads.and_then(|v| v.get("classifiers")).and_then(|v| v.get(&key)) {
+                    if let Some(url) = classifier.get("url").and_then(Value::as_str) {
+                        native_jobs.push((url.to_owned(), classifier.get("sha1").and_then(Value::as_str).map(str::to_owned)));
+                    }
                 }
             }
         }
@@ -119,6 +151,28 @@ async fn install_version(app: AppHandle, version_id: String) -> Result<String, S
         async move { download_file(&http, &url, &path, sha.as_deref()).await }
     })).buffer_unordered(8).collect::<Vec<_>>().await;
     for result in results { result?; }
+
+    if !native_jobs.is_empty() {
+        app.emit("install-progress", format!("Downloading {} native runtime archives...", native_jobs.len())).ok();
+        let mut archives = Vec::new();
+        for (url, sha) in native_jobs {
+            let response = client.get(&url).send().await.map_err(|e| format!("Native download failed: {e}"))?
+                .error_for_status().map_err(|e| e.to_string())?;
+            let bytes = response.bytes().await.map_err(|e| e.to_string())?.to_vec();
+            if let Some(expected) = sha {
+                let actual = hex::encode(Sha1::digest(&bytes));
+                if !actual.eq_ignore_ascii_case(&expected) {
+                    return Err(format!("Native archive checksum mismatch: expected {expected}, got {actual}"));
+                }
+            }
+            archives.push(bytes);
+        }
+        let destination = natives_dir.clone();
+        tokio::task::spawn_blocking(move || {
+            for bytes in archives { extract_native_archive(bytes, destination.clone())?; }
+            Ok::<(), String>(())
+        }).await.map_err(|e| format!("Native extraction task failed: {e}"))??;
+    }
 
     if let Some(asset_index) = metadata.get("assetIndex") {
         let index_url = asset_index.get("url").and_then(Value::as_str).ok_or("Asset index URL missing")?;
@@ -146,7 +200,7 @@ async fn install_version(app: AppHandle, version_id: String) -> Result<String, S
         for result in results { result?; }
     }
 
-    app.emit("install-progress", format!("Minecraft {version_id} files installed. Java runtime and launch profile are the next setup stage.")).ok();
+    app.emit("install-progress", format!("Minecraft {version_id} client, libraries, native files and assets installed. Java detection and authenticated launch are still required before Play can run.")).ok();
     Ok(root.to_string_lossy().into_owned())
 }
 
