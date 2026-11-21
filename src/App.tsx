@@ -5,6 +5,8 @@ import { getVersions, getLatestVersions, type MinecraftVersion, type VersionType
 
 type Page = "terminal" | "instances" | "mods" | "settings" | "about";
 type Filter = "all" | VersionType;
+type JavaRuntime = { path: string; version: string; supported: boolean };
+type InstanceInfo = { name: string; directory: string };
 
 const menu: { id: Page; label: string; key: string }[] = [
   { id: "terminal", label: "Play Minecraft", key: "1" },
@@ -28,6 +30,12 @@ function App() {
   const [status, setStatus] = useState("SYSTEM READY. SELECT AN ACTION.");
   const [rustPlatform, setRustPlatform] = useState("WEB PREVIEW");
   const [installing, setInstalling] = useState(false);
+  const [javaRuntimes, setJavaRuntimes] = useState<JavaRuntime[]>([]);
+  const [javaPath, setJavaPath] = useState("");
+  const [username, setUsername] = useState("Strawberry");
+  const [instances, setInstances] = useState<InstanceInfo[]>([]);
+  const [newInstanceName, setNewInstanceName] = useState("");
+  const [launching, setLaunching] = useState(false);
 
   async function loadVersions() {
     setManifestState("FETCHING OFFICIAL VERSION MANIFEST...");
@@ -63,9 +71,49 @@ function App() {
     }
   }
 
+  async function refreshRuntimeAndInstances() {
+    try {
+      const found = await invoke<JavaRuntime[]>("detect_java");
+      setJavaRuntimes(found);
+      const preferred = found.find((runtime) => runtime.supported) ?? found[0];
+      if (preferred) setJavaPath((current) => current || preferred.path);
+    } catch { setJavaRuntimes([]); }
+    try {
+      let foundInstances = await invoke<InstanceInfo[]>("list_instances");
+      if (foundInstances.length === 0) {
+        const created = await invoke<InstanceInfo>("create_instance", { name: "Strawberry" });
+        foundInstances = [created];
+      }
+      setInstances(foundInstances);
+      if (!foundInstances.some((item) => item.name === instanceName)) setInstanceName(foundInstances[0]?.name ?? "Strawberry");
+    } catch (error) { setStatus("INSTANCE LOAD FAILED: " + String(error)); }
+  }
+
+  async function createNewInstance() {
+    try {
+      const created = await invoke<InstanceInfo>("create_instance", { name: newInstanceName });
+      setInstances((current) => [...current, created].sort((a, b) => a.name.localeCompare(b.name)));
+      setInstanceName(created.name);
+      setNewInstanceName("");
+      setStatus("INSTANCE CREATED: " + created.name);
+    } catch (error) { setStatus("INSTANCE CREATION FAILED: " + String(error)); }
+  }
+
+  async function launchSelectedVersion() {
+    if (!javaPath) { setStatus("NO JAVA RUNTIME FOUND. INSTALL JAVA 21 FOR MINECRAFT 1.21.8."); setPage("settings"); return; }
+    setLaunching(true);
+    setStatus("STARTING " + selectedVersion + " IN " + instanceName + "...");
+    try {
+      const pid = await invoke<number>("launch_version", { versionId: selectedVersion, username, javaPath, instanceName });
+      setStatus("JAVA PROCESS STARTED · PID " + pid + " · " + instanceName);
+    } catch (error) { setStatus("LAUNCH FAILED: " + String(error)); }
+    finally { setLaunching(false); }
+  }
+
   useEffect(() => {
     loadVersions();
     invoke<string>("platform_info").then(setRustPlatform).catch(() => setRustPlatform("WEB PREVIEW — RUST BACKEND OFFLINE"));
+    refreshRuntimeAndInstances();
   }, []);
 
   useEffect(() => {
@@ -98,15 +146,18 @@ function App() {
     if (page === "instances") return <section className="panel full">
       <h2>INSTANCE DIRECTORY</h2>
       <div className="instance-card"><span className="pixel-icon">■</span><div><b>{instanceName}</b><small>MINECRAFT {selectedVersion} / {selectedLoader.toUpperCase()}</small></div><span className="tag">ACTIVE PROFILE</span></div>
-      <p className="muted">Each instance will have its own game directory, loader, settings, saves and mods. Instance creation and filesystem operations are not wired up yet.</p>
-      <button onClick={() => setStatus("INSTANCE CREATION IS ON THE ROADMAP.")}>[ + NEW INSTANCE ]</button>
+      <p className="muted">Separate game directories with dedicated mods, resource packs and saves.</p>
+      <label>SELECT INSTANCE<select value={instanceName} onChange={(e) => setInstanceName(e.target.value)}>{instances.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select></label>
+      <label>NEW INSTANCE NAME<input value={newInstanceName} onChange={(e) => setNewInstanceName(e.target.value)} placeholder="My new instance" /></label>
+      <button disabled={!newInstanceName.trim()} onClick={createNewInstance}>[ + CREATE INSTANCE ]</button>
+      <button onClick={refreshRuntimeAndInstances}>[ REFRESH INSTANCES / JAVA ]</button>
     </section>;
     if (page === "mods") return <section className="panel full">
       <h2>MOD MANAGEMENT</h2><p>ACTIVE INSTANCE: <b>{instanceName}</b></p>
       <div className="mod-grid">{["Fabric", "Forge", "NeoForge", "Quilt"].map((loader) => <button className={selectedLoader === loader ? "choice active" : "choice"} key={loader} onClick={() => { setSelectedLoader(loader); setStatus(`LOADER PROFILE SELECTED: ${loader.toUpperCase()}`); }}>{loader}</button>)}</div>
       <p className="muted">Loader selection is currently a profile preference only. Modrinth / CurseForge search, dependency resolution and installation are planned next.</p>
     </section>;
-    if (page === "settings") return <section className="panel full"><h2>SYSTEM CONFIGURATION</h2><label>INSTANCE NAME<input value={instanceName} onChange={(e) => setInstanceName(e.target.value)} /></label><label>LOADER PROFILE<select value={selectedLoader} onChange={(e) => setSelectedLoader(e.target.value)}>{["Vanilla", "Fabric", "Forge", "NeoForge", "Quilt"].map((x) => <option key={x}>{x}</option>)}</select></label><p className="muted">Performance target: low idle CPU and memory use; asynchronous downloads; shared immutable libraries where compatible; isolated per-instance mods.</p></section>;
+    if (page === "settings") return <section className="panel full"><h2>SYSTEM CONFIGURATION</h2><label>INSTANCE NAME<input value={instanceName} onChange={(e) => setInstanceName(e.target.value)} /></label><label>LOADER PROFILE<select value={selectedLoader} onChange={(e) => setSelectedLoader(e.target.value)}>{["Vanilla", "Fabric", "Forge", "NeoForge", "Quilt"].map((x) => <option key={x}>{x}</option>)}</select></label><h2>JAVA RUNTIME</h2><p>{javaRuntimes.length ? javaRuntimes.length + " JAVA RUNTIME(S) DETECTED" : "NO JAVA RUNTIME DETECTED"}</p><label>JAVA EXECUTABLE<select value={javaPath} onChange={(e) => setJavaPath(e.target.value)}>{javaRuntimes.map((runtime) => <option key={runtime.path} value={runtime.path}>{runtime.version} — {runtime.path}</option>)}</select></label><button onClick={refreshRuntimeAndInstances}>[ RESCAN JAVA ]</button><p className="muted">Minecraft 1.21.x requires Java 21. Java is detected locally; automatic runtime downloads are not implemented.</p><p className="muted">Performance target: low idle CPU and memory use; asynchronous downloads; isolated per-instance mods.</p></section>;
     if (page === "about") return <section className="panel full"><h2>ABOUT STRAWCLIENT</h2><p>STRAWCLIENT // RETRO CRT EDITION</p><p>VERSION 0.1.0 — EARLY DEVELOPMENT</p><p>Built with Tauri 2, Rust, React and TypeScript.</p><p className="muted">Independent community launcher. Not affiliated with Mojang or Microsoft.</p></section>;
     return <div className="workspace">
       <section className="panel play-panel">
@@ -122,6 +173,12 @@ function App() {
   |  STRAW  |       |  CRAFT     |
   |_________|       |____________|
 `}</pre>
+        <h2>LAUNCH CONTROL</h2>
+        <label>PLAYER NAME<input value={username} onChange={(e) => setUsername(e.target.value)} maxLength={16} /></label>
+        <label>ACTIVE INSTANCE<select value={instanceName} onChange={(e) => setInstanceName(e.target.value)}>{instances.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select></label>
+        <p className="muted">{javaRuntimes.length ? "JAVA: " + (javaRuntimes.find((runtime) => runtime.path === javaPath)?.version ?? "SELECT RUNTIME") : "JAVA: NOT DETECTED"}</p>
+        <button className="refresh" disabled={launching || installing || !javaPath} onClick={launchSelectedVersion}>{launching ? "[ STARTING... ]" : "[ LAUNCH OFFLINE ]"}</button>
+        <p className="muted">Offline test launch only. Microsoft authentication and online multiplayer are not implemented yet.</p>
         <h2>COMMAND MENU</h2>
         <div className="terminal-menu">{menu.map((item, i) => <button key={item.id} className={menuIndex === i ? "menu-item selected" : "menu-item"} onMouseEnter={() => setMenuIndex(i)} onClick={() => setPage(item.id)}><span>{menuIndex === i ? "▶" : " "}</span>{item.label}<kbd>{item.key}</kbd></button>)}</div>
         <p className="hint">↑ ↓ NAVIGATE &nbsp; ENTER SELECT &nbsp; 1–5 QUICK ACCESS</p>
