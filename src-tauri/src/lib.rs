@@ -3,6 +3,8 @@ use serde_json::Value;
 use sha1::{Digest, Sha1};
 use std::{io::Cursor, path::{Path, PathBuf}, sync::Arc};
 use tauri::{AppHandle, Emitter, Manager};
+mod runtime;
+mod instances;
 
 const MANIFEST_URL: &str = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 const ASSET_BASE: &str = "https://resources.download.minecraft.net";
@@ -87,6 +89,21 @@ fn extract_native_archive(bytes: Vec<u8>, destination: PathBuf) -> Result<(), St
 #[tauri::command]
 async fn platform_info() -> String {
     format!("NATIVE BACKEND ONLINE · {}", std::env::consts::OS.to_uppercase())
+}
+
+#[tauri::command]
+async fn detect_java() -> Vec<runtime::JavaRuntime> { runtime::detect_java() }
+
+#[tauri::command]
+async fn list_instances(app: AppHandle) -> Result<Vec<instances::InstanceInfo>, String> {
+    let root = app.path().app_data_dir().map_err(|e| e.to_string())?.join("minecraft");
+    instances::list(&root)
+}
+
+#[tauri::command]
+async fn create_instance(app: AppHandle, name: String) -> Result<instances::InstanceInfo, String> {
+    let root = app.path().app_data_dir().map_err(|e| e.to_string())?.join("minecraft");
+    instances::create(&root, &name)
 }
 
 #[tauri::command]
@@ -207,7 +224,7 @@ async fn install_version(app: AppHandle, version_id: String) -> Result<String, S
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![platform_info, install_version])
+        .invoke_handler(tauri::generate_handler![platform_info, detect_java, list_instances, create_instance, install_version])
         .run(tauri::generate_context!())
         .expect("error while running StrawClient");
 }
