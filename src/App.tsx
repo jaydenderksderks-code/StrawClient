@@ -114,10 +114,10 @@ function App() {
         <input className="search" placeholder="SEARCH EVERY VERSION..." value={query} onChange={(e) => setQuery(e.target.value)} />
         <div className="filters">{(["all", "release", "snapshot", "old_beta", "old_alpha"] as Filter[]).map((f) => <button key={f} className={filter === f ? "filter active" : "filter"} onClick={() => setFilter(f)}>{f === "all" ? "ALL" : f.replace("_", " ").toUpperCase()}</button>)}</div>
         <div className="version-list" role="listbox" aria-label="Minecraft versions">
-          {filtered.slice(0, 300).map((v) => <button role="option" aria-selected={selectedVersion === v.id} key={v.id} className={selectedVersion === v.id ? "version-row chosen" : "version-row"} onClick={() => chooseVersion(v)}><span>{v.id}</span><small>{v.type.toUpperCase()}</small></button>)}
+          {filtered.map((v) => <button role="option" aria-selected={selectedVersion === v.id} key={v.id} className={selectedVersion === v.id ? "version-row chosen" : "version-row"} onClick={() => chooseVersion(v)}><span>{v.id}</span><small>{v.type.toUpperCase()}</small></button>)}
           {filtered.length === 0 && <p className="muted">NO MATCHING VERSIONS.</p>}
         </div>
-        <small className="muted">SHOWING {Math.min(filtered.length, 300)} OF {filtered.length.toLocaleString()} MATCHES · MOJANG MANIFEST</small>
+        <small className="muted">SHOWING ALL {filtered.length.toLocaleString()} MATCHES · MOJANG MANIFEST</small>
         <button className="refresh" onClick={loadVersions}>[ REFRESH VERSION LIST ]</button>
       </section>
     </div>;
