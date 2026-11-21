@@ -132,7 +132,8 @@ function App() {
         <div className="readout"><small>SELECTED VERSION</small><strong>{selectedVersion}</strong></div>
         <div className="readout"><small>LOADER</small><strong>{selectedLoader.toUpperCase()}</strong></div>
         {latest && <div className="latest">LATEST RELEASE: {latest.release}<br/>LATEST SNAPSHOT: {latest.snapshot}</div>}
-        <button className="refresh" disabled={installing} onClick={installSelectedVersion}>{installing ? "[ INSTALLING... ]" : "[ INSTALL SELECTED VERSION ]"}</button>\n        <h2>VERSION CATALOGUE</h2>
+        <button className="refresh" disabled={installing} onClick={installSelectedVersion}>{installing ? "[ INSTALLING... ]" : "[ INSTALL SELECTED VERSION ]"}</button>
+        <h2>VERSION CATALOGUE</h2>
         <input className="search" placeholder="SEARCH EVERY VERSION..." value={query} onChange={(e) => setQuery(e.target.value)} />
         <div className="filters">{(["all", "release", "snapshot", "old_beta", "old_alpha"] as Filter[]).map((f) => <button key={f} className={filter === f ? "filter active" : "filter"} onClick={() => setFilter(f)}>{f === "all" ? "ALL" : f.replace("_", " ").toUpperCase()}</button>)}</div>
         <div className="version-list" role="listbox" aria-label="Minecraft versions">
